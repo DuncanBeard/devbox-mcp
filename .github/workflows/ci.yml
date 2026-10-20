@@ -110,7 +110,8 @@ jobs:
 
   publish:
     needs: [nix, windows]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Skipped (not failed) until the feed is configured.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_ARTIFACTS_NPM_REGISTRY != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: azure-artifacts

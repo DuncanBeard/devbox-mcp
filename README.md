@@ -151,13 +151,13 @@ sort after the upstream version and before the next upstream release.
 
 ### One-time setup
 
-1. Push this repo to GitHub.
+1. ~~Push this repo to GitHub.~~ Done: <https://github.com/DuncanBeard/devbox-mcp>. Until step 2 is set, the publish job is skipped.
 2. **Variable** `AZURE_ARTIFACTS_NPM_REGISTRY` =
    `https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/npm/registry/`
    (omit `<project>/` for an org-scoped feed).
 3. **Feed auth** (pick one):
    - *OIDC, preferred:* an Entra app with a federated credential for
-     `repo:<owner>/<repo>:environment:azure-artifacts`. Add its service principal to the
+     `repo:DuncanBeard/devbox-mcp:environment:azure-artifacts`. Add its service principal to the
      Azure DevOps org with **Feed Publisher (Contributor)** on the feed. Set variables
      `AZURE_CLIENT_ID` and `AZURE_TENANT_ID`.
    - *PAT:* secret `AZURE_ARTIFACTS_PAT` with *Packaging (read & write)*.
@@ -177,7 +177,7 @@ sort after the upstream version and before the next upstream release.
 ## Use it with Nix (Linux / WSL)
 
 ```jsonc
-{ "servers": { "DevBox": { "command": "nix", "args": ["run", "github:<you>/devbox-mcp"] } } }
+{ "servers": { "DevBox": { "command": "nix", "args": ["run", "github:DuncanBeard/devbox-mcp"] } } }
 ```
 
 From another flake, add this repo as an input and apply `overlays.default`. On Linux,
