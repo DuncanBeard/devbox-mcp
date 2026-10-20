@@ -122,7 +122,7 @@ jobs:
     env:
       PACKAGE: ${{ needs.nix.outputs.package }}
       VERSION: ${{ needs.nix.outputs.version }}
-      TGZ: npm/${{ needs.nix.outputs.tgz }}
+      TGZ: ./npm/${{ needs.nix.outputs.tgz }}
       EXPECTED: ${{ needs.nix.outputs.integrity }}
       REGISTRY: https://registry.npmjs.org
     steps:
@@ -158,5 +158,6 @@ jobs:
             exit 1
           fi
           # Versions are prereleases (upstream is alpha); npm 11 requires an explicit tag.
+          # TGZ must keep its ./ prefix: npm reads "npm/x.tgz" as a GitHub owner/repo.
           npm publish "$TGZ" --tag latest --registry "$REGISTRY"
           echo "::notice::published $PACKAGE@$VERSION with provenance"

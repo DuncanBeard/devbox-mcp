@@ -161,7 +161,7 @@ exist first:
    # compare with the `integrity=` line in that run's "nix" job log
    node -e "const c=require('crypto'),f=require('fs');console.log('sha512-'+c.createHash('sha512').update(f.readFileSync(process.argv[1])).digest('base64'))" npm/*.tgz
    npm login --registry https://registry.npmjs.org
-   npm publish npm/*.tgz --tag latest --registry https://registry.npmjs.org
+   npm publish ./npm/*.tgz --tag latest --registry https://registry.npmjs.org
    ```
 2. **npmjs.com** → package → Settings → *Trusted Publisher* → GitHub Actions:
    user `DuncanBeard`, repository `devbox-mcp`, workflow `ci.yml`, environment `npm`,
