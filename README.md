@@ -60,7 +60,7 @@ third_party/devbox-mcp/
   default.nix                Linux build (node_modules) for nix run / VM / OCI
   package-lock.json
 nix/overlay.nix              pkgs.devbox-mcp{,-src,-npm}   ← single source of truth
-nix/npm-tarball.nix          patched source re-packed as @scope/devbox-mcp-nodelete .tgz
+nix/npm-tarball.nix          patched source re-packed as @duncanbeard/devbox-mcp .tgz
 nix/publish.json             published package name + patch revision
 nix/tests/probe.mjs          MCP-over-stdio + guard behavioural test (Linux and Windows)
 nix/tests/no-delete.nix      sandboxed check + negative control against stock upstream
@@ -104,7 +104,7 @@ flowchart LR
     src --> tgz["npmTarball<br/>reproducible .tgz"]
     tgz --> win["windows-latest<br/>npm install + same probe"]
     lin --> pub
-    win --> pub["Azure Artifacts<br/>@duncanbeard/devbox-mcp-nodelete"]
+    win --> pub["Azure Artifacts<br/>@duncanbeard/devbox-mcp"]
     pub --> npx["npx on your machine"]
 ```
 
@@ -120,7 +120,7 @@ flowchart LR
    ```jsonc
    {
      "servers": {
-       "DevBox": { "command": "npx", "args": ["-y", "@duncanbeard/devbox-mcp-nodelete@latest"] }
+       "DevBox": { "command": "npx", "args": ["-y", "@duncanbeard/devbox-mcp@latest"] }
      }
    }
    ```
