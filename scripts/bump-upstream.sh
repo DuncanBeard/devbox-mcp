@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Bump the pinned upstream @microsoft/devbox-mcp to a new version.
 #
-#   nix develop -c ./scripts/bump-upstream.sh            # latest dist-tag
-#   nix develop -c ./scripts/bump-upstream.sh 0.0.4      # specific version
-#   nix develop -c ./scripts/bump-upstream.sh --force    # regenerate for current (idempotence check)
+#   nix develop .#bump -c ./scripts/bump-upstream.sh            # latest dist-tag
+#   nix develop .#bump -c ./scripts/bump-upstream.sh 0.0.4      # specific version
+#   nix develop .#bump -c ./scripts/bump-upstream.sh --force    # regenerate for current (idempotence check)
 #
 # Updates third_party/devbox-mcp/{upstream.json,package-lock.json} and resets
 # nix/publish.json revision to 1. It does NOT touch the patch sites: if upstream

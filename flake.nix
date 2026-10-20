@@ -40,6 +40,10 @@
         default = pkgs.mkShell {
           packages = [ pkgs.devbox-mcp pkgs.nodejs pkgs.jq pkgs.prefetch-npm-deps ];
         };
+        # Just what scripts/bump-upstream.sh needs; doesn't build devbox-mcp.
+        bump = pkgs.mkShellNoCC {
+          packages = [ pkgs.nodejs pkgs.jq pkgs.prefetch-npm-deps ];
+        };
       });
     };
 }

@@ -135,7 +135,8 @@ sort after the upstream version and before the next upstream release.
 - **One patcher.** Only `patched-src.nix` modifies upstream. CI, the VM, the Windows test
   and the published package all use those same bytes. The sha512 is checked at every hop,
   and a [build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations)
-  is attached to each publish.
+  is attached to each publish when the repo is public. Private repos need GitHub
+  Enterprise Cloud for attestations, so the step is skipped there.
 - **Reproducible.** `nix build .#npmTarball --rebuild` must produce identical bytes.
   Publishing therefore can't silently overwrite anything: if the feed already has the
   version with the same bytes, CI does nothing. If it has the version with *different*
@@ -198,7 +199,7 @@ authentication goes through `az login`, because WAM is Windows-only.
 This happens automatically (see above). To do it by hand:
 
 ```console
-nix develop -c ./scripts/bump-upstream.sh [version]   # default: latest dist-tag
+nix develop .#bump -c ./scripts/bump-upstream.sh [version]   # default: latest dist-tag
 nix flake check -L
 ```
 
