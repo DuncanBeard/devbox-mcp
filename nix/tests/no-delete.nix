@@ -9,12 +9,12 @@ pkgs.runCommand "devbox-mcp-no-delete"
   ''
     export HOME=$TMPDIR
     node ${./probe.mjs} \
-      ${pkgs.lib.getExe pkgs.devbox-mcp} \
-      ${pkgs.devbox-mcp}/lib/node_modules/@microsoft/devbox-mcp/dist/delete-guard.mjs
+      ${pkgs.devbox-mcp}/lib/node_modules/@microsoft/devbox-mcp/dist/delete-guard.mjs \
+      ${pkgs.lib.getExe pkgs.devbox-mcp}
 
     # Negative control: the same probe MUST fail against stock upstream,
     # otherwise the assertions above are vacuous.
-    if node ${./probe.mjs} ${pkgs.lib.getExe pkgs.devbox-mcp-unpatched} - > unpatched.log 2>&1; then
+    if node ${./probe.mjs} - ${pkgs.lib.getExe pkgs.devbox-mcp-unpatched} > unpatched.log 2>&1; then
       cat unpatched.log
       echo "FAIL: probe passed against unpatched upstream; the test proves nothing" >&2
       exit 1

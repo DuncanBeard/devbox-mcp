@@ -1,6 +1,9 @@
 // Behavioural test for the patched devbox-mcp. Runs offline.
 //
-//   node probe.mjs <path-to-devbox-mcp-server-binary> <path-to-delete-guard.mjs | ->
+//   node probe.mjs <path-to-delete-guard.mjs | -> <server command> [args...]
+//
+//   Linux:   node probe.mjs $out/.../dist/delete-guard.mjs $out/bin/devbox-mcp-server
+//   Windows: node probe.mjs <pkg>\dist\delete-guard.mjs node <pkg>\dist\devbox-mcp-server.mjs
 //
 // 1. Talks MCP (JSON-RPC over stdio) to the real server binary:
 //    - tools/list contains no tool matching /delete/i
@@ -14,9 +17,10 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import assert from "node:assert/strict";
+import { pathToFileURL } from "node:url";
 
-const [serverBin, guardPath] = process.argv.slice(2);
-assert.ok(serverBin && guardPath, "usage: probe.mjs <server-bin> <delete-guard.mjs>");
+const [guardPath, serverCmd, ...serverArgs] = process.argv.slice(2);
+assert.ok(guardPath && serverCmd, "usage: probe.mjs <delete-guard.mjs|-> <server command> [args...]");
 
 const ok = (m) => console.log(`ok: ${m}`);
 
@@ -25,7 +29,7 @@ const skipGuard = guardPath === "-";
 
 // ---------- 1. MCP surface ----------
 async function mcpSession() {
-  const child = spawn(serverBin, [], {
+  const child = spawn(serverCmd, serverArgs, {
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, DEVBOX_MCP_WORKPLANNER_ENABLED: "true", DEVBOX_MCP_PREVIEW_MODE: "true" },
   });
@@ -100,7 +104,9 @@ const wp = await s.rpc("tools/call", {
   arguments: { sessionId: "s", taskId: "t" },
 });
 assert.ok(isRefused(wp), `workplanner_delete_task was not refused: ${JSON.stringify(wp)}`);
-ok("workplanner_delete_task refused (not registered)");
+const wpTools = names.filter((n) => n.startsWith("workplanner_"));
+ok(`workplanner_delete_task refused (not registered); other WorkPlanner tools present: ${
+  wpTools.length ? wpTools.join(", ") : "none (not a Microsoft-internal identity, so this check is vacuous here)"}`);
 s.child.kill();
 if (skipGuard) { console.log("PASS"); process.exit(0); }
 
@@ -113,7 +119,7 @@ const httpServer = createServer((req, res) => {
 await new Promise((r) => httpServer.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${httpServer.address().port}`;
 
-const guard = await import(guardPath);
+const guard = await import(pathToFileURL(guardPath).href);
 const http = (await import("node:http")).default;
 const https = (await import("node:https")).default;
 

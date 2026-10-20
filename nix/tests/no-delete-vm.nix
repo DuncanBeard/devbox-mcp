@@ -20,8 +20,8 @@ pkgs.testers.runNixOSTest {
     with subtest("MCP surface has no delete and the guard holds"):
         out = machine.succeed(
             "HOME=/tmp node ${./probe.mjs} "
-            "$(command -v devbox-mcp-server) "
-            "${pkgs.devbox-mcp}/lib/node_modules/@microsoft/devbox-mcp/dist/delete-guard.mjs 2>&1"
+            "${pkgs.devbox-mcp}/lib/node_modules/@microsoft/devbox-mcp/dist/delete-guard.mjs "
+            "$(command -v devbox-mcp-server) 2>&1"
         )
         print(out)
         assert "PASS" in out

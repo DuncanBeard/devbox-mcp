@@ -15,8 +15,10 @@
       overlays.default = import ./nix/overlay.nix;
 
       packages = forAllSystems (pkgs: {
-        inherit (pkgs) devbox-mcp;
+        inherit (pkgs) devbox-mcp devbox-mcp-src;
         default = pkgs.devbox-mcp;
+        # Publishable npm package (platform-independent JS) for Windows / npx.
+        npmTarball = pkgs.devbox-mcp-npm;
         dockerImage = import ./nix/docker.nix { inherit pkgs; };
       });
 
@@ -29,13 +31,14 @@
 
       checks = forAllSystems (pkgs: {
         devbox-mcp = pkgs.devbox-mcp;
+        npmTarball = pkgs.devbox-mcp-npm;
         no-delete = import ./nix/tests/no-delete.nix { inherit pkgs; };
         no-delete-vm = import ./nix/tests/no-delete-vm.nix { inherit pkgs; };
       });
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.devbox-mcp pkgs.nodejs ];
+          packages = [ pkgs.devbox-mcp pkgs.nodejs pkgs.jq pkgs.prefetch-npm-deps ];
         };
       });
     };

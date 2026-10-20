@@ -1,0 +1,90 @@
+# Daily: if @microsoft/devbox-mcp has a new release, open a PR that re-pins it.
+#
+# The PR touches only third_party/devbox-mcp/{upstream.json,package-lock.json} and
+# nix/publish.json. Every patch site is a --replace-fail, so if upstream moved
+# code the build fails and the PR says so. A human then updates patched-src.nix.
+# Nothing is published until the PR is merged and ci.yml goes green on main.
+#
+# PRs opened with the default GITHUB_TOKEN don't trigger other workflows. Set
+# secrets.BOT_TOKEN (a GitHub App or fine-grained token with contents + pull-requests
+# write) so ci.yml, including the Windows job and the VM test, runs on the PR.
+name: bump-upstream
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Upstream version (default: latest dist-tag)"
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: bump-upstream
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.BOT_TOKEN || github.token }}
+
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+
+      - id: bump
+        env:
+          VERSION: ${{ inputs.version }}
+        run: nix develop -c ./scripts/bump-upstream.sh "$VERSION"
+
+      - id: pr-exists
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN || github.token }}
+          BRANCH: bump/devbox-mcp-${{ steps.bump.outputs.to }}
+        run: |
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$BRANCH already exists; not opening another PR"
+          fi
+
+      # Fast checks only (no VM): patch sites still apply, probe + negative control pass.
+      - id: check
+        if: steps.bump.outputs.changed == 'true' && steps.pr-exists.outputs.exists != 'true'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          nix build -L .#checks.x86_64-linux.no-delete .#npmTarball 2>&1 | tee check.log
+      - name: Open PR
+        if: steps.bump.outputs.changed == 'true' && steps.pr-exists.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN || github.token }}
+          BRANCH: ${{ steps.pr-exists.outputs.branch }}
+          FROM: ${{ steps.bump.outputs.from }}
+          TO: ${{ steps.bump.outputs.to }}
+          OUTCOME: ${{ steps.check.outcome }}
+        run: |
+          # shellcheck disable=SC2016 # literal backticks are Markdown
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add third_party/devbox-mcp/upstream.json third_party/devbox-mcp/package-lock.json nix/publish.json
+          git commit -m "chore: bump @microsoft/devbox-mcp $FROM -> $TO"
+          git push -u origin "$BRANCH"
+
+          if [ "$OUTCOME" = "success" ]; then
+            title="chore: bump @microsoft/devbox-mcp $FROM -> $TO"
+            status="All delete patch sites still apply, and the MCP probe passes (negative control included)."
+          else
+            title="chore: bump @microsoft/devbox-mcp $FROM -> $TO (patch sites need attention)"
+            status=$(printf 'The build or probe **failed**. Most likely upstream moved code around a `--replace-fail` site in `third_party/devbox-mcp/patched-src.nix`, or added a new delete path.\n\n<details><summary>last 80 lines</summary>\n\n```\n%s\n```\n</details>' "$(tail -80 check.log)")
+          fi
+          printf '%s\n\n%s\n\nUpstream: https://www.npmjs.com/package/@microsoft/devbox-mcp/v/%s\n\nBefore merging, check the upstream changes for **new** delete-capable tools or operations. The `/delete/i` registration filter and the network guard catch most of them, but a renamed operation (e.g. "remove", "destroy") would get past both.\n' \
+            "Automated re-pin of the upstream package." "$status" "$TO" > body.md
+          gh pr create --base "${{ github.event.repository.default_branch }}" --head "$BRANCH" --title "$title" --body-file body.md
