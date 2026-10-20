@@ -1,5 +1,5 @@
 # Build with Nix -> test on Linux (sandbox + NixOS VM) -> test the tarball on
-# Windows -> publish the exact Nix-built bytes to Azure Artifacts.
+# Windows -> publish the exact Nix-built bytes to npmjs.org.
 #
 # Nix is the only thing that ever patches devbox-mcp. Later jobs only move and
 # verify the .tgz it produced (sha512 checked at every hop).
@@ -110,22 +110,21 @@ jobs:
 
   publish:
     needs: [nix, windows]
-    # Skipped (not failed) until the feed is configured.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_ARTIFACTS_NPM_REGISTRY != ''
+    # NPM_PUBLISH is a repo variable kill switch: set to "true" once trusted
+    # publishing is configured on npmjs.com (see README).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.NPM_PUBLISH == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: azure-artifacts
+    environment: npm
     permissions:
       contents: read
-      id-token: write     # azure/login (OIDC) + build provenance
-      attestations: write
+      id-token: write   # npm trusted publishing (OIDC) + automatic provenance
     env:
-      # e.g. https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/npm/registry/
-      REGISTRY: ${{ vars.AZURE_ARTIFACTS_NPM_REGISTRY }}
       PACKAGE: ${{ needs.nix.outputs.package }}
       VERSION: ${{ needs.nix.outputs.version }}
       TGZ: npm/${{ needs.nix.outputs.tgz }}
       EXPECTED: ${{ needs.nix.outputs.integrity }}
+      REGISTRY: https://registry.npmjs.org
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -134,65 +133,30 @@ jobs:
 
       - name: Verify artifact integrity
         run: |
-          test -n "$REGISTRY" || { echo "::error::set repo variable AZURE_ARTIFACTS_NPM_REGISTRY"; exit 1; }
           actual="sha512-$(openssl dgst -sha512 -binary "$TGZ" | base64 -w0)"
           [ "$actual" = "$EXPECTED" ] || { echo "::error::integrity mismatch"; exit 1; }
 
-      # Attestations work on public repos (any plan) or with GitHub Enterprise
-      # Cloud; on a private personal repo the step would fail, so skip it there.
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        if: github.event.repository.visibility == 'public'
+      # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          subject-path: ${{ env.TGZ }}
-
-      # Preferred: workload identity federation, no stored secret. The service
-      # principal must be added to the Azure DevOps org with Contributor on the feed.
-      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
-        if: vars.AZURE_CLIENT_ID != ''
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          allow-no-subscriptions: true
-
-      - name: Configure feed auth
-        env:
-          PAT: ${{ secrets.AZURE_ARTIFACTS_PAT }}
-          USE_OIDC: ${{ vars.AZURE_CLIENT_ID != '' }}
-        run: |
-          feed="${REGISTRY#https:}"            # //pkgs.dev.azure.com/.../npm/registry/
-          scope="${PACKAGE%%/*}"
-          echo "${scope}:registry=${REGISTRY}" > "$HOME/.npmrc"
-          if [ "$USE_OIDC" = "true" ]; then
-            # 499b84ac-... is the Azure DevOps resource; Azure Artifacts accepts Entra bearer tokens.
-            token=$(az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
-            echo "::add-mask::$token"
-            echo "${feed}:_authToken=${token}" >> "$HOME/.npmrc"
-          elif [ -n "$PAT" ]; then
-            pw=$(printf '%s' "$PAT" | base64 -w0)
-            echo "::add-mask::$pw"
-            {
-              echo "${feed}:username=github-actions"
-              echo "${feed}:_password=${pw}"
-              echo "${feed}:email=npm@example.invalid"
-            } >> "$HOME/.npmrc"
-          else
-            echo "::error::set vars.AZURE_CLIENT_ID/AZURE_TENANT_ID (OIDC) or secrets.AZURE_ARTIFACTS_PAT"
-            exit 1
-          fi
+          node-version: 24
+          registry-url: https://registry.npmjs.org
 
       # Same version + same bytes = no-op. Same version + different bytes means the
       # patch changed without bumping nix/publish.json `revision`: refuse.
+      # npm never allows re-publishing a version, so this is also the idempotence check.
       - name: Publish
         run: |
+          npm --version
           if remote=$(npm view "$PACKAGE@$VERSION" version --registry "$REGISTRY" 2>/dev/null) && [ -n "$remote" ]; then
-            remote_int=$(npm view "$PACKAGE@$VERSION" dist.integrity --registry "$REGISTRY" 2>/dev/null || true)
-            remote_sha1=$(npm view "$PACKAGE@$VERSION" dist.shasum --registry "$REGISTRY" 2>/dev/null || true)
-            if [ "$remote_int" = "$EXPECTED" ] || [ "$remote_sha1" = "$(sha1sum "$TGZ" | cut -d' ' -f1)" ]; then
+            remote_int=$(npm view "$PACKAGE@$VERSION" dist.integrity --registry "$REGISTRY")
+            if [ "$remote_int" = "$EXPECTED" ]; then
               echo "::notice::$PACKAGE@$VERSION already published with identical bytes; nothing to do"
               exit 0
             fi
-            echo "::error::$PACKAGE@$VERSION exists with different contents. Bump nix/publish.json revision."
+            echo "::error::$PACKAGE@$VERSION exists with different contents ($remote_int). Bump nix/publish.json revision."
             exit 1
           fi
-          npm publish "$TGZ" --registry "$REGISTRY" --ignore-scripts
-          echo "::notice::published $PACKAGE@$VERSION"
+          # Versions are prereleases (upstream is alpha); npm 11 requires an explicit tag.
+          npm publish "$TGZ" --tag latest --registry "$REGISTRY"
+          echo "::notice::published $PACKAGE@$VERSION with provenance"

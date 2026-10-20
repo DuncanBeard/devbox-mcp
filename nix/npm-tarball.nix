@@ -1,5 +1,5 @@
-# The patched source re-packed as a normal npm package, published to Azure
-# Artifacts so Windows can `npx` it. Nix is the only thing that ever applies the
+# The patched source re-packed as a normal npm package, published to npmjs.org
+# so Windows can `npx` it. Nix is the only thing that ever applies the
 # patch; Windows just installs the result.
 #
 # Version: <upstream>.nodelete.<revision> (or <upstream>-nodelete.<revision> when
@@ -27,7 +27,7 @@ let
     > **Unofficial rebuild of [`@microsoft/devbox-mcp@${upstream.version}`](https://www.npmjs.com/package/@microsoft/devbox-mcp/v/${upstream.version}) with every delete capability removed.**
     > `devbox_resource` accepts only `read`/`create`, `workplanner_delete_task` is gone, and the
     > process refuses to send any HTTP `DELETE` or call any `/delete…` endpoint.
-    > Built reproducibly with Nix; not supported by Microsoft.
+    > Built reproducibly with Nix from [${publish.repository}](https://github.com/${publish.repository}); not supported by Microsoft.
 
   '';
 in
@@ -43,12 +43,17 @@ runCommand "devbox-mcp-nodelete-${version}.tgz"
     cd pkg
 
     jq --arg name ${lib.escapeShellArg publish.name} --arg version ${lib.escapeShellArg version} \
-       --arg upstream ${lib.escapeShellArg upstream.version} '
+       --arg upstream ${lib.escapeShellArg upstream.version} --arg repo ${lib.escapeShellArg publish.repository} '
       .name = $name
       | .version = $version
       | .description = "Microsoft Dev Box MCP server (@microsoft/devbox-mcp " + $upstream + ") with all delete operations removed"
       | .keywords += ["no-delete"]
       | .upstream = { name: "@microsoft/devbox-mcp", version: $upstream }
+      # npm provenance requires repository.url to match the publishing repo.
+      | .repository = { type: "git", url: ("git+https://github.com/" + $repo + ".git") }
+      | .homepage = ("https://github.com/" + $repo + "#readme")
+      | .bugs = { url: ("https://github.com/" + $repo + "/issues") }
+      | .publishConfig = { access: "public" }
     ' package.json > package.json.new
     mv package.json.new package.json
 

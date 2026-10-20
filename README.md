@@ -67,7 +67,7 @@ nix/tests/no-delete.nix      sandboxed check + negative control against stock up
 nix/tests/no-delete-vm.nix   NixOS VM test (runNixOSTest)
 nix/docker.nix               OCI image of the patched server
 scripts/bump-upstream.sh     re-pin a new upstream release
-.github/workflows/ci.yml     nix check → Windows smoke test → publish to Azure Artifacts
+.github/workflows/ci.yml     nix check → Windows smoke test → publish to npmjs.org
 .github/workflows/bump-upstream.yml   daily upstream check → PR
 ```
 
@@ -96,6 +96,7 @@ nix flake check
 ## Use it on Windows (published package)
 
 Nix runs only in CI. Windows installs the result like any other npm package:
+[`@duncanbeard/devbox-mcp`](https://www.npmjs.com/package/@duncanbeard/devbox-mcp).
 
 ```mermaid
 flowchart LR
@@ -104,75 +105,80 @@ flowchart LR
     src --> tgz["npmTarball<br/>reproducible .tgz"]
     tgz --> win["windows-latest<br/>npm install + same probe"]
     lin --> pub
-    win --> pub["Azure Artifacts<br/>@duncanbeard/devbox-mcp"]
+    win --> pub["npmjs.org<br/>@duncanbeard/devbox-mcp<br/>(trusted publishing + provenance)"]
     pub --> npx["npx on your machine"]
 ```
 
-1. Point the scope at the feed in `%USERPROFILE%\.npmrc` and authenticate as you do for
-   other Azure Artifacts feeds (`vsts-npm-auth` / artifacts-npm-credprovider):
+Replace the upstream entry in `.vscode/mcp.json` (or any MCP client config):
 
-   ```ini
-   @duncanbeard:registry=https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/npm/registry/
-   ```
-
-2. Replace the upstream entry in `.vscode/mcp.json` (or any MCP client config):
-
-   ```jsonc
-   {
-     "servers": {
-       "DevBox": { "command": "npx", "args": ["-y", "@duncanbeard/devbox-mcp@latest"] }
-     }
-   }
-   ```
+```jsonc
+{
+  "servers": {
+    "DevBox": { "command": "npx", "args": ["-y", "@duncanbeard/devbox-mcp@latest"] }
+  }
+}
+```
 
 Auth is unchanged from upstream: WAM, Azure CLI and the rest of `DefaultAzureCredential`.
+If your default npm registry is a corporate proxy feed that doesn't (yet) serve the
+package, add `@duncanbeard:registry=https://registry.npmjs.org/` to your `.npmrc`.
 
 Versions are `<upstream>.nodelete.<revision>`, for example `0.0.3-alpha.4.nodelete.1`. They
 sort after the upstream version and before the next upstream release.
 
+To check that the package came from this repo's CI: `npm audit signatures`, or look for the
+provenance badge on the npm page. Every version from `…nodelete.2` on has one; `.1` was
+the hand-published bootstrap.
+
 ### What the pipeline guarantees
 
 - **One patcher.** Only `patched-src.nix` modifies upstream. CI, the VM, the Windows test
-  and the published package all use those same bytes. The sha512 is checked at every hop,
-  and a [build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations)
-  is attached to each publish when the repo is public. Private repos need GitHub
-  Enterprise Cloud for attestations, so the step is skipped there.
-- **Reproducible.** `nix build .#npmTarball --rebuild` must produce identical bytes.
-  Publishing therefore can't silently overwrite anything: if the feed already has the
-  version with the same bytes, CI does nothing. If it has the version with *different*
-  bytes, CI fails and asks you to bump `revision` in `nix/publish.json`.
+  and the published package all use those same bytes, and the sha512 is checked at every
+  hop. npm adds a [provenance statement](https://docs.npmjs.com/generating-provenance-statements)
+  linking each version to the exact workflow run and commit.
+- **No publish token.** CI authenticates with
+  [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC), scoped to
+  `DuncanBeard/devbox-mcp` → `ci.yml` → environment `npm`. There's no secret to leak.
+- **Reproducible.** `nix build .#npmTarball --rebuild` must produce identical bytes, and
+  CI's tarball has matched local builds byte for byte. If npm already has the version with
+  the same bytes, CI does nothing. If it has the version with *different* bytes, CI fails
+  and asks you to bump `revision` in `nix/publish.json`. npm never allows a version to be
+  re-published.
 - **Tested where it runs.** The Windows job installs the exact tarball with real native
-  deps (keytar, WAM broker) and runs the same MCP probe. On a corp identity the WorkPlanner
-  tools register, which makes the `workplanner_delete_task` check meaningful (stock upstream
-  lists it, the patched build doesn't).
+  deps (keytar, WAM broker) and runs the same MCP probe.
 - **Upstream drift fails loudly.** `bump-upstream.yml` re-pins new releases daily and opens a
   PR. A moved patch site is a `--replace-fail` build error and turns the PR red. Nothing
   publishes until the PR merges and `main` is green.
 
 ### One-time setup
 
-1. ~~Push this repo to GitHub.~~ Done: <https://github.com/DuncanBeard/devbox-mcp>. Until step 2 is set, the publish job is skipped.
-2. **Variable** `AZURE_ARTIFACTS_NPM_REGISTRY` =
-   `https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/npm/registry/`
-   (omit `<project>/` for an org-scoped feed).
-3. **Feed auth** (pick one):
-   - *OIDC, preferred:* an Entra app with a federated credential for
-     `repo:DuncanBeard/devbox-mcp:environment:azure-artifacts`. Add its service principal to the
-     Azure DevOps org with **Feed Publisher (Contributor)** on the feed. Set variables
-     `AZURE_CLIENT_ID` and `AZURE_TENANT_ID`.
-   - *PAT:* secret `AZURE_ARTIFACTS_PAT` with *Packaging (read & write)*.
-4. **Environment** `azure-artifacts` (Settings → Environments). Add required reviewers if
-   you want a human gate on publishing.
-5. **Bump PRs:** Settings → Actions → General → *Allow GitHub Actions to create and approve
-   pull requests*. Optionally add secret `BOT_TOKEN` (a GitHub App or fine-grained PAT) so
-   CI runs on the bot's PRs. PRs opened with `GITHUB_TOKEN` don't trigger workflows.
-6. **Package name:** `nix/publish.json`. Keep it scoped to something you own. If the feed
-   has npmjs as an upstream source, an unscoped name is open to dependency confusion.
+Trusted publishing is configured on the package's npm settings page, so the package must
+exist first:
 
-> Corp policy note: Microsoft Azure DevOps orgs often restrict which identities and
-> tenants can connect. If OIDC from a personal GitHub account is blocked, host the repo in
-> a corp-linked GitHub org (or run the same steps in Azure Pipelines). The Nix side
-> doesn't change.
+1. **Bootstrap v1 by hand from the CI-built tarball** (never a local rebuild):
+   ```console
+   gh run download <run-id> -R DuncanBeard/devbox-mcp -n npm-package -D npm
+   # compare with the `integrity=` line in that run's "nix" job log
+   node -e "const c=require('crypto'),f=require('fs');console.log('sha512-'+c.createHash('sha512').update(f.readFileSync(process.argv[1])).digest('base64'))" npm/*.tgz
+   npm login --registry https://registry.npmjs.org
+   npm publish npm/*.tgz --tag latest --registry https://registry.npmjs.org
+   ```
+2. **npmjs.com** → package → Settings → *Trusted Publisher* → GitHub Actions:
+   user `DuncanBeard`, repository `devbox-mcp`, workflow `ci.yml`, environment `npm`,
+   with **`npm publish` allowed**. Then, under *Publishing access*, choose *Require
+   two-factor authentication and disallow tokens*.
+3. **Turn on CI publishing and validate the trust within 2 days.** A new trusted-publisher
+   config expires unless a publish through it succeeds within 2 days. CI skips the version
+   you already bootstrapped, so bump the revision to make it publish
+   `…nodelete.2` (same contents, first version with provenance):
+   ```console
+   gh variable set NPM_PUBLISH -R DuncanBeard/devbox-mcp -b true
+   jq '.revision = 2' nix/publish.json > t && mv t nix/publish.json
+   git commit -am "release: first trusted-publishing release" && git push
+   ```
+   Setting `NPM_PUBLISH` to anything other than `true` is the kill switch.
+4. **Optional:** required reviewers on the `npm` environment, and a `BOT_TOKEN` secret so
+   CI runs on the bot's bump PRs (PRs opened with `GITHUB_TOKEN` don't trigger workflows).
 
 ## Use it with Nix (Linux / WSL)
 
